@@ -1,0 +1,161 @@
+# what I did before:
+
+pip install PyTorch --use-pep517
+pip install torch --use-pep517
+pip torchcodec
+pip install soundfile
+
+
+
+##### try Whisper from Huggingface
+
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+import soundfile as sf
+import torch
+
+# load model and processor
+processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+# model.config.forced_decoder_ids = None # essential?
+
+# load dummy dataset and read audio files
+# ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+# sample = ds[0]["audio"]
+# input_features = processor(sample["array"], sampling_rate=sample["sampling_rate"], return_tensors="pt").input_features 
+
+## load wav file directly
+sample, sr = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")               # this works
+#input_features = processor(sample, sampling_rate=16000, return_tensors="pt").input_features 
+
+
+inputs = processor(sample, sampling_rate=16000, return_tensors="pt")
+
+# inputs contains input_features (and attention_mask)
+input_features = inputs.input_features
+# attention_mask = inputs.attention_mask  # this is what you pass to generate(), if present
+
+
+# generate token ids
+predicted_ids = model.generate(input_features) # ok if single wav file
+# predicted_ids = model.generate(input_features, attention_mask=attention_mask)
+# decode token ids to text
+transcription = processor.batch_decode(predicted_ids, skip_special_tokens=False)
+print(transcription)
+
+
+############## try whisper from Huggingface, including prompting
+############## this is not working in the way we want
+
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+import librosa
+import soundfile as sf
+import torch
+
+# load model and processor
+#processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+processor = WhisperProcessor.from_pretrained("openai/whisper-large-v2")
+#model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v2") # this takes a while, the first time
+model.config.forced_decoder_ids = None
+
+## load dummy dataset and read audio files
+#ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
+#sample = ds[0]["audio"]
+
+#sample = librosa.load("C:/Users/louis/Downloads/thisisanexample.wav", sr = 16000) # this does not work
+sample, sr = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")               # this works
+input_features = processor(sample, sampling_rate=16000, return_tensors="pt").input_features 
+
+
+# see https://cookbook.openai.com/examples/whisper_prompting_guide
+
+
+# 1. Get the normal forced decoder start tokens (lang + task)
+forced_decoder_ids = processor.get_decoder_prompt_ids(
+    language="en", task="transcribe"
+)
+
+# 2. Encode your text prompt
+prompt_text = "The following sentence is about 20 words long."
+prompt_ids = processor.tokenizer(prompt_text, return_tensors="pt").input_ids[:, 1:]  
+
+#or, but this omits Whisper start tokens
+# # --- Prompt setup ---
+#prompt_text = ""
+## Convert text prompt to token IDs
+#prompt_ids = processor.tokenizer(prompt_text, return_tensors="pt").input_ids
+
+# 3. Combine forced_decoder_ids + your prompt
+decoder_input_ids = torch.cat(
+    [torch.tensor([tok for _, tok in forced_decoder_ids]).unsqueeze(0), prompt_ids],
+    dim=1
+)
+
+## the following lines still don't work properly
+#
+#decoder_input_ids = torch.cat(
+#    [torch.tensor([tok for _, tok in forced_decoder_ids]).unsqueeze(0), torch.tensor([[]])],
+#    dim=1
+#) 
+
+# Generate token ids with prompt_ids
+# predicted_ids = model.generate(input_features,  prompt_ids=prompt_ids, max_new_tokens=128)
+#predicted_ids = model.generate(input_features,  decoder_input_ids=prompt_ids, max_new_tokens=128)
+#predicted_ids = model.generate(input_features,  decoder_input_ids=decoder_input_ids, max_new_tokens=128, num_beams=5, length_penalty=0.6,  no_repeat_ngram_size=3) # extra args not really helpful
+
+predicted_ids = model.generate(input_features,  decoder_input_ids=decoder_input_ids, max_new_tokens=128)
+# this goes without warnings but doesn't produce anything later
+
+#predicted_ids = model.generate(input_features,  decoder_input_ids=forced_decoder_ids)
+
+## generate token ids without prompt  ### deprecated: missing language='en' and missing attention mask
+#predicted_ids = model.generate(input_features, language='en')  
+
+# decode token ids to text
+transcription = processor.batch_decode(predicted_ids, skip_special_tokens=False)
+print(transcription)
+
+
+[" C'est un exemple d'un document dans lequel nous essayons de prouver un nombre de conjectures attribuées à Mr. X, Y et Z. Dans la séquence, je voudrais essayer de vous convaincre de la validité des preuves qui ont été données par Mr. Y."]
+
+
+
+
+
+######################### translation (works)
+
+# The following example demonstrates English audio to French transcription by setting the decoder ids appropriately.
+
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from datasets import Audio, load_dataset
+import soundfile as sf
+import torch
+
+# load model and processor
+processor = WhisperProcessor.from_pretrained("openai/whisper-small")
+model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
+forced_decoder_ids = processor.get_decoder_prompt_ids(language="german", task="transcribe")
+
+## load streaming dataset and read first audio sample
+#ds = load_dataset("common_voice", "fr", split="test", streaming=True)
+#ds = ds.cast_column("audio", Audio(sampling_rate=16_000))
+#input_speech = next(iter(ds))["audio"]
+#input_features = processor(input_speech["array"], sampling_rate=input_speech["sampling_rate"], return_tensors="pt").input_features
+
+sample, sr = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")               # this works
+input_features = processor(sample, sampling_rate=16000, return_tensors="pt").input_features 
+
+
+# generate token ids
+predicted_ids = model.generate(input_features, forced_decoder_ids=forced_decoder_ids)
+# decode token ids to text
+transcription = processor.batch_decode(predicted_ids)
+# transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)
+
+[" C'est un exemple d'un document où on essaie de prouver un nombre de conjectures qui sont attribuées à Mr. X, Y et Z. Et après, je vais essayer de confier la vulnérabilité des prouves qui ont été données par Mr. Y."]
+
+
+[' Ja, das ist ein Beispiel eines Dokuments, in dem wir die Zahl der Konjunktur, die Sie mit Mr. X, Y und Z betreffen. In diesem Fall möchte ich Sie versuchen, die Verletzung der Proben zu konfinieren, die von Mr. Y gegeben worden ist.']
+
+
+
