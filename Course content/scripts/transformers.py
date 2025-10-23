@@ -497,8 +497,431 @@ Reference:  tensor([0., 0., 1.])
 Predicted:  tensor([[0.1033, 0.1428, 1.2217]])
 Reference:  tensor([0., 1., 1.])
 
+####################### Experiment: another boolean constriction
+
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+from transformers import Trainer, TrainingArguments
+
+
+# ----- 1. Dummy dataset -----
+class VectorDataset(Dataset):
+    def __init__(self, n_samples=1000, seq_len=10, dim=3):
+        # self.X = torch.randn(n_samples, seq_len, dim)
+        X = (torch.randn(n_samples, seq_len, dim) > 0.5) + 0.0
+        self.X = X
+        y = []
+        for i in range(0, n_samples):
+             y.append([ 1-X[i][seq_len-1][0], X[i][seq_len-1][1] * X[i][seq_len-2][1], 1-X[i][seq_len-2][2] ])
+             #y.append([ X[i][2][0] ])
+        #self.y = torch.tensor(y)
+        self.y = torch.tensor(y)
+        # Example: output = mean of inputs
+        # self.y = self.X.mean(dim=1)
+    #
+    def __len__(self):
+        return len(self.X)
+    #
+    def __getitem__(self, idx):
+        return {"input_vectors": self.X[idx], "labels": self.y[idx]}
+
+# test = VectorDataset(1000, 10, 3)
+# test.X[33].shape
+## function above doent work in the test phase
+
+
+# ----- 1. Dummy dataset -----
+class VectorDataset(Dataset):
+    def __init__(self, n_samples=1000, seq_len=10, dim=3):
+        self.X = torch.randn(n_samples, seq_len, dim)
+        # Example: output = mean of inputs
+        self.y = self.X.mean(dim=1)
+    #
+    def __len__(self):
+        return len(self.X)
+    #
+    def __getitem__(self, idx):
+        return {"input_vectors": self.X[idx], "labels": self.y[idx]}
+
+# ----- 2. Small transformer model -----
+class TransformerRegressor(nn.Module):
+    def __init__(self, input_dim=3, model_dim=64, num_heads=4, num_layers=2, output_dim=3):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim,
+            nhead=num_heads,
+            dim_feedforward=128,
+            dropout=0.1,
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.input_proj = nn.Linear(input_dim, model_dim)
+        self.output_proj = nn.Linear(model_dim, output_dim)
+    #
+    def forward(self, input_vectors, labels=None):
+        x = self.input_proj(input_vectors)
+        encoded = self.encoder(x)
+        pooled = encoded.mean(dim=1)  # simple mean pooling
+        preds = self.output_proj(pooled)
+        loss = None
+        if labels is not None:
+            loss_fn = nn.MSELoss()
+            loss = loss_fn(preds, labels)
+        return {"loss": loss, "logits": preds}
+
+# ----- 3. Trainer-compatible wrappers -----
+def collate_fn(batch):
+    inputs = torch.stack([item["input_vectors"] for item in batch])
+    labels = torch.stack([item["labels"] for item in batch])
+    return {"input_vectors": inputs, "labels": labels}
+
+train_dataset = VectorDataset(1000, 10, 3)
+val_dataset = VectorDataset(200, 10, 3)
+
+model = TransformerRegressor()
+
+training_args = TrainingArguments(
+    output_dir="./results",
+    learning_rate=1e-3,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    num_train_epochs=1000, # 10,
+    eval_strategy="epoch", ### or evaluation_strategy # this depends on transformer version
+    logging_steps=10,
+    report_to="none",
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=val_dataset,
+    data_collator=collate_fn,
+)
+
+# ----- 4. Train -----
+trainer.train()
+
+# ----- 5. Predict -----
+# test_input = torch.randn(1, 10, 16)
+
+
+test_dataset = VectorDataset(50, 10, 3)
+
+for k in range(0, 10):
+  test_input = test_dataset[k]['input_vectors']
+  test_input = test_input.unsqueeze(0) # puts an axis in front
+  with torch.no_grad():
+      output = model(test_input)["logits"]
+  #
+  print("Predicted: ", output)
+  print("Reference: ", test_dataset[k]['labels'])
+  print("--------")
+  # results are certainly not good yet, but improving
+
+Predicted:  tensor([[0.8435, 0.0307, 1.0800]])
+Reference:  tensor([1., 0., 1.])
+--------
+Predicted:  tensor([[0.6193, 0.0174, 1.1564]])
+Reference:  tensor([0., 0., 0.])
+--------
+Predicted:  tensor([[1.0199, 0.0056, 0.7273]])
+Reference:  tensor([1., 0., 1.])
+--------
+Predicted:  tensor([[0.8696, 0.1572, 1.2169]])
+Reference:  tensor([0., 0., 1.])
+--------
+Predicted:  tensor([[1.2198, 0.2389, 0.9272]])
+Reference:  tensor([1., 0., 1.])
+--------
+Predicted:  tensor([[ 1.0629, -0.0662,  0.6617]])
+Reference:  tensor([0., 0., 0.])
+--------
+Predicted:  tensor([[0.3284, 0.0900, 0.6384]])
+Reference:  tensor([1., 0., 0.])
+--------
+Predicted:  tensor([[1.0429, 0.4620, 1.0324]])
+Reference:  tensor([1., 0., 1.])
+
+# on validation set:
+for k in range(0, 10):
+  test_input = val_dataset[k]['input_vectors']
+  test_input = test_input.unsqueeze(0) # puts an axis in front
+  with torch.no_grad():
+      output = model(test_input)["logits"]
+  #
+  print("Predicted: ", output)
+  print("Reference: ", val_dataset[k]['labels'])
+  print("--------")
+  # results are certainly not good yet
+
+
+### this shows OK tendencies but is certainly not perfect
+### what about more layers? (not really convincing)
 
 
 
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+from transformers import Trainer, TrainingArguments
+
+
+# ----- 1. Dummy dataset -----
+class VectorDataset(Dataset):
+    def __init__(self, n_samples=1000, seq_len=10, dim=3):
+        # self.X = torch.randn(n_samples, seq_len, dim)
+        X = (torch.randn(n_samples, seq_len, dim) > 0.5) + 0.0
+        self.X = X
+        y = []
+        for i in range(0, n_samples):
+             y.append([ 1-X[i][seq_len-1][0], X[i][seq_len-1][1] * X[i][seq_len-2][1], 1-X[i][seq_len-2][2] ])
+             #y.append([ X[i][2][0] ])
+        #self.y = torch.tensor(y)
+        self.y = torch.tensor(y)
+        # Example: output = mean of inputs
+        # self.y = self.X.mean(dim=1)
+    #
+    def __len__(self):
+        return len(self.X)
+    #
+    def __getitem__(self, idx):
+        return {"input_vectors": self.X[idx], "labels": self.y[idx]}
+
+# test = VectorDataset(1000, 10, 3)
+# test.X[33].shape
+## function above doent work in the test phase
+
+
+# ----- 1. Dummy dataset -----
+class VectorDataset(Dataset):
+    def __init__(self, n_samples=1000, seq_len=10, dim=3):
+        self.X = torch.randn(n_samples, seq_len, dim)
+        # Example: output = mean of inputs
+        self.y = self.X.mean(dim=1)
+    #
+    def __len__(self):
+        return len(self.X)
+    #
+    def __getitem__(self, idx):
+        return {"input_vectors": self.X[idx], "labels": self.y[idx]}
+
+# ----- 2. Small transformer model -----
+class TransformerRegressor(nn.Module):
+    def __init__(self, input_dim=3, model_dim=64, num_heads=4, num_layers=4, output_dim=3):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim,
+            nhead=num_heads,
+            dim_feedforward=128,
+            dropout=0.1,
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.input_proj = nn.Linear(input_dim, model_dim)
+        self.output_proj = nn.Linear(model_dim, output_dim)
+    #
+    def forward(self, input_vectors, labels=None):
+        x = self.input_proj(input_vectors)
+        encoded = self.encoder(x)
+        pooled = encoded.mean(dim=1)  # simple mean pooling
+        #pooled = encoded # cannot be done in this way
+        preds = self.output_proj(pooled)
+        loss = None
+        if labels is not None:
+            loss_fn = nn.MSELoss()
+            loss = loss_fn(preds, labels)
+        return {"loss": loss, "logits": preds}
+
+# ----- 3. Trainer-compatible wrappers -----
+def collate_fn(batch):
+    inputs = torch.stack([item["input_vectors"] for item in batch])
+    labels = torch.stack([item["labels"] for item in batch])
+    return {"input_vectors": inputs, "labels": labels}
+
+train_dataset = VectorDataset(1000, 10, 3)
+val_dataset = VectorDataset(200, 10, 3)
+
+model = TransformerRegressor()
+
+training_args = TrainingArguments(
+    output_dir="./results",
+    learning_rate=1e-3,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    num_train_epochs=1000, # 10,
+    eval_strategy="epoch", ### or evaluation_strategy # this depends on transformer version
+    logging_steps=10,
+    report_to="none",
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=train_dataset,
+    eval_dataset=val_dataset,
+    data_collator=collate_fn,
+)
+
+# ----- 4. Train -----
+trainer.train()
+
+# ----- 5. Predict -----
+# test_input = torch.randn(1, 10, 16)
+
+
+test_dataset = VectorDataset(50, 10, 3)
+
+for k in range(0, 10):
+  test_input = test_dataset[k]['input_vectors']
+  test_input = test_input.unsqueeze(0) # puts an axis in front
+  with torch.no_grad():
+      output = model(test_input)["logits"]
+  #
+  print("Predicted: ", output)
+  print("Reference: ", test_dataset[k]['labels'])
+  print("--------")
+
+# on training set
+for k in range(0, 10):
+  test_input = train_dataset[k]['input_vectors']
+  test_input = test_input.unsqueeze(0) # puts an axis in front
+  with torch.no_grad():
+      output = model(test_input)["logits"]
+  #
+  print("Predicted: ", output)
+  print("Reference: ", train_dataset[k]['labels'])
+  print("--------")  # reasonable convincing 
+
+
+
+########################## other mapping sequence ---> boolean:
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+# ----------------------------
+# 1. Dataset definition
+# ----------------------------
+class BooleanSequenceDataset(Dataset):
+    def __init__(self, n_samples=2000, seq_len=10):
+        self.X, self.y = self._generate_data(n_samples, seq_len)
+  #
+    def _generate_data(self, n_samples, seq_len):
+        # Input: binary sequences of shape [n_samples, seq_len, 2]
+        X = torch.randint(0, 2, (n_samples, seq_len, 2)).float()
+   #
+        # Example Boolean expressions for outputs:
+        #   y1 = 1 if any bit in the sequence is 1 (OR over all)
+        #   y2 = 1 if the number of 1's in first component > number in second component
+        y1 = (X.sum(dim=(1, 2)) > 0).float()  # any 1 in the sequence
+        y2 = (X[:, :, 0].sum(dim=1) > X[:, :, 1].sum(dim=1)).float()
+        y = torch.stack([y1, y2], dim=1).unsqueeze(-1)  # shape [N, 2, 1]
+        return X, y
+  #
+    def __len__(self):
+        return len(self.X)
+  #
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+# ----------------------------
+# 2. Transformer model
+# ----------------------------
+class BooleanTransformer(nn.Module):
+    def __init__(self, input_dim=2, model_dim=32, num_heads=4, num_layers=2, output_dim=2):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, model_dim)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=model_dim,
+            nhead=num_heads,
+            dim_feedforward=64,
+            dropout=0.1,
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # Pool across sequence dimension
+        self.pool = nn.AdaptiveAvgPool1d(1)
+        self.output_proj = nn.Sequential(
+            nn.Linear(model_dim, 16),
+            nn.ReLU(),
+            nn.Linear(16, output_dim),
+            nn.Sigmoid(),  # because outputs are in [0,1]
+        )
+    def forward(self, x):
+        # x: [batch, seq_len, input_dim]
+        x = self.input_proj(x)
+        encoded = self.encoder(x)  # [batch, seq_len, model_dim]
+        pooled = encoded.mean(dim=1)  # average pooling over sequence
+        out = self.output_proj(pooled)  # [batch, output_dim]
+        return out.unsqueeze(-1)  # [batch, output_dim, 1]
+
+# ----------------------------
+# 3. Training setup
+# ----------------------------
+def train_model(model, train_loader, val_loader, n_epochs=20, lr=1e-3, device='cpu'):
+    criterion = nn.BCELoss()  # binary classification
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    model.to(device)
+    for epoch in range(n_epochs):
+        model.train()
+        running_loss = 0.0
+        for X, y in train_loader:
+            X, y = X.to(device), y.to(device)
+            optimizer.zero_grad()
+            y_pred = model(X)
+            loss = criterion(y_pred, y)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item() * X.size(0)
+        train_loss = running_loss / len(train_loader.dataset)
+        # Validation
+        model.eval()
+        with torch.no_grad():
+            val_loss = 0.0
+            for X, y in val_loader:
+                X, y = X.to(device), y.to(device)
+                val_loss += criterion(model(X), y).item() * X.size(0)
+            val_loss /= len(val_loader.dataset)
+        print(f"Epoch {epoch+1:02d}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}")
+
+# ----------------------------
+# 4. Train and test
+# ----------------------------
+#def main():
+if 1:
+    seq_len = 10
+    dataset = BooleanSequenceDataset(n_samples=2000, seq_len=seq_len)
+    X_train, X_val, y_train, y_val = train_test_split(dataset.X, dataset.y, test_size=0.2)
+    #
+    train_ds = torch.utils.data.TensorDataset(X_train, y_train)
+    val_ds = torch.utils.data.TensorDataset(X_val, y_val)
+    train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=32)
+    #
+    model = BooleanTransformer()
+    train_model(model, train_loader, val_loader, n_epochs=20, lr=1e-3)
+
+if 1:
+    # Test
+    # model.eval()
+    with torch.no_grad():
+        #X_test = torch.randint(0, 2, (1, seq_len, 2)).float()
+        y_pred = model(X_test)
+        print(X_test)
+        #print(y_pred)
+        print("Sample predictions:\n", y_pred.squeeze(-1).round()) # yes
+
+
+
+
+# if __name__ == "__main__":
+# main()
 
 
