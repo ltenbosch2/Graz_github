@@ -1,0 +1,638 @@
+import matplotlib.pyplot as plt
+from tensorflow import keras
+from keras.models import Model, Sequential, load_model
+from keras.layers import Input, Dense, Dropout, Conv2D, MaxPooling2D, UpSampling2D, Flatten, Reshape
+import numpy as np
+import random
+from keras import layers
+import scipy
+from scipy.stats import linregress
+
+
+##################### TRAINING network
+
+# data: vector sequence (real, dim = 5) -> Boolean 
+
+#file = open('tobeexecuted.txt', 'r')
+#content = file.read()
+#file.close()
+#exec(content)
+
+
+ExpTag = "MA_002"
+# read in data set
+X = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/X_'+ ExpTag + '.npy')
+#was: /vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Y = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Y_'+ ExpTag + '.npy')
+
+input_shape = X.shape[1:]
+n_classes = int(np.max(Y))+1;
+
+
+def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
+    # Normalization and Attention
+    x = layers.LayerNormalization(epsilon=1e-6)(inputs)
+    x = layers.MultiHeadAttention(
+        #key_dim=head_size, num_heads=num_heads, dropout=dropout
+        key_dim=head_size, value_dim=head_size,num_heads=num_heads, dropout=dropout
+    )(x, x)
+    x = layers.Dropout(dropout)(x)
+    res = x + inputs
+    #
+    # Feed Forward Part
+    x = layers.LayerNormalization(epsilon=1e-6)(res)
+    x = layers.Conv1D(filters=ff_dim, kernel_size=1, activation="relu")(x)
+    x = layers.Dropout(dropout)(x)
+    x = layers.Conv1D(filters=inputs.shape[-1], kernel_size=1)(x)
+    return x + res
+
+
+def build_model(
+    input_shape,
+    head_size,
+    num_heads,
+    ff_dim,
+    num_transformer_blocks,
+    mlp_units,
+    dropout=0,
+    mlp_dropout=0,):
+    inputs = keras.Input(shape=input_shape)
+    x = inputs
+    for _ in range(num_transformer_blocks):
+        x = transformer_encoder(x, head_size, num_heads, ff_dim, dropout)
+    #
+    x = layers.GlobalAveragePooling1D(data_format="channels_first")(x)
+    for dim in mlp_units:
+        x = layers.Dense(dim, activation="relu")(x)
+        x = layers.Dropout(mlp_dropout)(x)
+    outputs = layers.Dense(n_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs)
+
+
+################# further training
+
+my_iter = 1
+my_num_epochs = 300 # 500 1000
+H_array = np.zeros((my_num_epochs))
+
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # [1,4] # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        #my_iter = 1
+        #my_head_size = 5
+       #
+        model = build_model(
+          input_shape,
+          head_size=my_head_size,
+          num_heads=my_num_heads, #1,#2,#4
+          ff_dim=my_ff_dim,
+          num_transformer_blocks=my_num_Tlayers, #1,#1, # 4,
+          mlp_units=[16], #[128],
+          mlp_dropout=0.1, #0.4,
+          dropout=0.1, #0.25,
+        )
+        #
+        model.compile(
+          loss="sparse_categorical_crossentropy",
+          optimizer=keras.optimizers.Adam(learning_rate=1e-4),#1e-4
+          metrics=["sparse_categorical_accuracy"],
+        )
+        model.summary()
+        #
+        callbacks = [keras.callbacks.EarlyStopping(patience=20000, restore_best_weights=True)]
+        #
+        H = model.fit(
+          X,
+          Y,
+          validation_split=0.2,
+          epochs=my_num_epochs,
+          batch_size=64*16,
+          callbacks=callbacks,
+        )
+        #final_acc = H.history['val_sparse_categorical_accuracy'][-1]
+        #res_arr[my_num_heads, my_num_Tlayers] = final_acc
+        H_array = np.array(H.history['val_sparse_categorical_accuracy'])
+        fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+        model.save("model_" + fout)
+        np.save("H_array_" + fout, H_array)
+
+
+##### test
+
+# read in test data set
+Xtest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Xtest_'+ ExpTag + '.npy')
+#/vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Ytest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Ytest_'+ ExpTag + '.npy')
+
+my_iter = 1 
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        # try:
+        if 1:
+          my_num_epochs = 300
+          fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+          model_bu = keras.models.load_model("model_" + fout)
+          H = np.load("H_array_" + fout + ".npy")
+          Ytest_est = model_bu.predict(Xtest)
+          s = 0
+          for k in np.arange(0, len(Ytest)):
+            if (Ytest[k] < 0.5 and Ytest_est[k][0] > 0.5) or (Ytest[k] > 0.5 and Ytest_est[k][1] > 0.5):
+              s = s + 1
+          # slope of line through last half of H
+          st = linregress(np.arange(0, 80), H[my_num_epochs-80:])  ## tricky if length H is too small
+          still_progress = (st.slope > 0) and (st.pvalue < 0.05)
+          print([ExpTag, my_num_epochs, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0])
+          #file.write("%s %d %d %d %d %f %f %d %d\n" % (ExpTag, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0, my_iter))
+        #except:
+        #  _ignore_ = 1
+
+
+
+938/938 [==============================] - 2s 2ms/step
+['MA_002', 300, 1, 1, 1, 1, 24208, 0.807, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_002', 300, 1, 1, 1, 3, 25434, 0.848, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_002', 300, 1, 1, 1, 5, 28455, 0.948, 1]
+
+938/938 [==============================] - 2s 2ms/step
+['MA_002', 800, 1, 1, 1, 1, 29544, 0.985, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_002', 800, 1, 1, 1, 3, 28640, 0.955, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_002', 800, 1, 1, 1, 5, 28457, 0.949, 1]
+
+
+############### TRAINING AND TEST MA_003
+
+
+ExpTag = "MA_003"
+# read in data set
+X = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/X_'+ ExpTag + '.npy')
+#was: /vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Y = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Y_'+ ExpTag + '.npy')
+
+input_shape = X.shape[1:]
+n_classes = int(np.max(Y))+1;
+
+
+def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
+    # Normalization and Attention
+    x = layers.LayerNormalization(epsilon=1e-6)(inputs)
+    x = layers.MultiHeadAttention(
+        #key_dim=head_size, num_heads=num_heads, dropout=dropout
+        key_dim=head_size, value_dim=head_size,num_heads=num_heads, dropout=dropout
+    )(x, x)
+    x = layers.Dropout(dropout)(x)
+    res = x + inputs
+    #
+    # Feed Forward Part
+    x = layers.LayerNormalization(epsilon=1e-6)(res)
+    x = layers.Conv1D(filters=ff_dim, kernel_size=1, activation="relu")(x)
+    x = layers.Dropout(dropout)(x)
+    x = layers.Conv1D(filters=inputs.shape[-1], kernel_size=1)(x)
+    return x + res
+
+
+def build_model(
+    input_shape,
+    head_size,
+    num_heads,
+    ff_dim,
+    num_transformer_blocks,
+    mlp_units,
+    dropout=0,
+    mlp_dropout=0,):
+    inputs = keras.Input(shape=input_shape)
+    x = inputs
+    for _ in range(num_transformer_blocks):
+        x = transformer_encoder(x, head_size, num_heads, ff_dim, dropout)
+    #
+    x = layers.GlobalAveragePooling1D(data_format="channels_first")(x)
+    for dim in mlp_units:
+        x = layers.Dense(dim, activation="relu")(x)
+        x = layers.Dropout(mlp_dropout)(x)
+    outputs = layers.Dense(n_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs)
+
+
+################# further training
+
+my_iter = 1
+my_num_epochs = 300 # 500 1000
+H_array = np.zeros((my_num_epochs))
+
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # [1,4] # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        #my_iter = 1
+        #my_head_size = 5
+       #
+        model = build_model(
+          input_shape,
+          head_size=my_head_size,
+          num_heads=my_num_heads, #1,#2,#4
+          ff_dim=my_ff_dim,
+          num_transformer_blocks=my_num_Tlayers, #1,#1, # 4,
+          mlp_units=[16], #[128],
+          mlp_dropout=0.1, #0.4,
+          dropout=0.1, #0.25,
+        )
+        #
+        model.compile(
+          loss="sparse_categorical_crossentropy",
+          optimizer=keras.optimizers.Adam(learning_rate=1e-4),#1e-4
+          metrics=["sparse_categorical_accuracy"],
+        )
+        model.summary()
+        #
+        callbacks = [keras.callbacks.EarlyStopping(patience=20000, restore_best_weights=True)]
+        #
+        H = model.fit(
+          X,
+          Y,
+          validation_split=0.2,
+          epochs=my_num_epochs,
+          batch_size=64*16,
+          callbacks=callbacks,
+        )
+        #final_acc = H.history['val_sparse_categorical_accuracy'][-1]
+        #res_arr[my_num_heads, my_num_Tlayers] = final_acc
+        H_array = np.array(H.history['val_sparse_categorical_accuracy'])
+        fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+        model.save("model_" + fout)
+        np.save("H_array_" + fout, H_array)
+
+
+##### test
+
+# read in test data set
+Xtest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Xtest_'+ ExpTag + '.npy')
+#/vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Ytest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Ytest_'+ ExpTag + '.npy')
+
+my_iter = 1 
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        # try:
+        if 1:
+          my_num_epochs = 300
+          fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+          model_bu = keras.models.load_model("model_" + fout)
+          H = np.load("H_array_" + fout + ".npy")
+          Ytest_est = model_bu.predict(Xtest)
+          s = 0
+          for k in np.arange(0, len(Ytest)):
+            if (Ytest[k] < 0.5 and Ytest_est[k][0] > 0.5) or (Ytest[k] > 0.5 and Ytest_est[k][1] > 0.5):
+              s = s + 1
+          # slope of line through last half of H
+          st = linregress(np.arange(0, 80), H[my_num_epochs-80:])  ## tricky if length H is too small
+          still_progress = (st.slope > 0) and (st.pvalue < 0.05)
+          print([ExpTag, my_num_epochs, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0])
+          #file.write("%s %d %d %d %d %f %f %d %d\n" % (ExpTag, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0, my_iter))
+        #except:
+        #  _ignore_ = 1
+
+
+
+
+938/938 [==============================] - 1s 1ms/step
+['MA_003', 300, 1, 1, 1, 1, 28079, 0.936, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_003', 300, 1, 1, 1, 3, 21873, 0.729, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_003', 300, 1, 1, 1, 5, 28450, 0.948, 1]
+
+
+
+# Plotting ----
+
+
+# Plot
+plt.figure(figsize=(6,4))
+plt.plot(range(1, len(H) + 1), H, label="val acc", marker='o')
+plt.plot(range(1, len(H) + 1), H, label="val acc", linestyle='--')
+plt.xlabel("Epoch")
+plt.ylabel("val acc")
+plt.title("Val acc ABC vs ACB")
+plt.legend()
+plt.grid(True)
+plt.savefig('Val_acc_ABC_ACB.png')
+plt.show()
+
+
+############### TRAINING AND TEST MA_003b
+
+
+ExpTag = "MA_003b"
+# read in data set
+X = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/X_'+ ExpTag + '.npy')
+#was: /vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Y = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Y_'+ ExpTag + '.npy')
+
+input_shape = X.shape[1:]
+n_classes = int(np.max(Y))+1;
+
+
+def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
+    # Normalization and Attention
+    x = layers.LayerNormalization(epsilon=1e-6)(inputs)
+    x = layers.MultiHeadAttention(
+        #key_dim=head_size, num_heads=num_heads, dropout=dropout
+        key_dim=head_size, value_dim=head_size,num_heads=num_heads, dropout=dropout
+    )(x, x)
+    x = layers.Dropout(dropout)(x)
+    res = x + inputs
+    #
+    # Feed Forward Part
+    x = layers.LayerNormalization(epsilon=1e-6)(res)
+    x = layers.Conv1D(filters=ff_dim, kernel_size=1, activation="relu")(x)
+    x = layers.Dropout(dropout)(x)
+    x = layers.Conv1D(filters=inputs.shape[-1], kernel_size=1)(x)
+    return x + res
+
+
+def build_model(
+    input_shape,
+    head_size,
+    num_heads,
+    ff_dim,
+    num_transformer_blocks,
+    mlp_units,
+    dropout=0,
+    mlp_dropout=0,):
+    inputs = keras.Input(shape=input_shape)
+    x = inputs
+    for _ in range(num_transformer_blocks):
+        x = transformer_encoder(x, head_size, num_heads, ff_dim, dropout)
+    #
+    x = layers.GlobalAveragePooling1D(data_format="channels_first")(x)
+    for dim in mlp_units:
+        x = layers.Dense(dim, activation="relu")(x)
+        x = layers.Dropout(mlp_dropout)(x)
+    outputs = layers.Dense(n_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs)
+
+
+################# further training
+
+my_iter = 1
+my_num_epochs = 300 # 500 1000
+H_array = np.zeros((my_num_epochs))
+
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # [1,4] # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        #my_iter = 1
+        #my_head_size = 5
+       #
+        model = build_model(
+          input_shape,
+          head_size=my_head_size,
+          num_heads=my_num_heads, #1,#2,#4
+          ff_dim=my_ff_dim,
+          num_transformer_blocks=my_num_Tlayers, #1,#1, # 4,
+          mlp_units=[16], #[128],
+          mlp_dropout=0.1, #0.4,
+          dropout=0.1, #0.25,
+        )
+        #
+        model.compile(
+          loss="sparse_categorical_crossentropy",
+          optimizer=keras.optimizers.Adam(learning_rate=1e-4),#1e-4
+          metrics=["sparse_categorical_accuracy"],
+        )
+        model.summary()
+        #
+        callbacks = [keras.callbacks.EarlyStopping(patience=20000, restore_best_weights=True)]
+        #
+        H = model.fit(
+          X,
+          Y,
+          validation_split=0.2,
+          epochs=my_num_epochs,
+          batch_size=64*16,
+          callbacks=callbacks,
+        )
+        #final_acc = H.history['val_sparse_categorical_accuracy'][-1]
+        #res_arr[my_num_heads, my_num_Tlayers] = final_acc
+        H_array = np.array(H.history['val_sparse_categorical_accuracy'])
+        fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+        model.save("model_" + fout)
+        np.save("H_array_" + fout, H_array)
+
+
+##### test
+
+# read in test data set
+Xtest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Xtest_'+ ExpTag + '.npy')
+#/vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Ytest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Ytest_'+ ExpTag + '.npy')
+
+my_iter = 1 
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        # try:
+        if 1:
+          my_num_epochs = 300
+          fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+          model_bu = keras.models.load_model("model_" + fout)
+          H = np.load("H_array_" + fout + ".npy")
+          Ytest_est = model_bu.predict(Xtest)
+          s = 0
+          for k in np.arange(0, len(Ytest)):
+            if (Ytest[k] < 0.5 and Ytest_est[k][0] > 0.5) or (Ytest[k] > 0.5 and Ytest_est[k][1] > 0.5):
+              s = s + 1
+          # slope of line through last half of H
+          st = linregress(np.arange(0, 80), H[my_num_epochs-80:])  ## tricky if length H is too small
+          still_progress = (st.slope > 0) and (st.pvalue < 0.05)
+          print([ExpTag, my_num_epochs, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0])
+          #file.write("%s %d %d %d %d %f %f %d %d\n" % (ExpTag, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0, my_iter))
+        #except:
+        #  _ignore_ = 1
+
+
+                                                                                                                 938/938 [==============================] - 2s 2ms/step                                                                  ['MA_003b', 300, 1, 1, 1, 1, 22693, 0.756, 1]                                                                           938/938 [==============================] - 2s 2ms/step                                                                  ['MA_003b', 300, 1, 1, 1, 3, 23687, 0.79, 1]                                                                            938/938 [==============================] - 2s 2ms/step                                                                  ['MA_003b', 300, 1, 1, 1, 5, 21544, 0.718, 1]             
+
+
+# Plot
+plt.figure(figsize=(6,4))
+plt.plot(range(1, len(H) + 1), H, label="val acc", marker='o')
+plt.plot(range(1, len(H) + 1), H, label="val acc", linestyle='--')
+plt.xlabel("Epoch")
+plt.ylabel("val acc")
+plt.title("Val acc ABC vs ACB")
+plt.legend()
+plt.grid(True)
+plt.savefig('Val_acc_ABC_ACB_dim3.png')
+plt.show()
+
+
+
+############### TRAINING AND TEST MA_004 # this is really hard problem
+
+
+ExpTag = "MA_004"
+# read in data set
+X = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/X_'+ ExpTag + '.npy')
+#was: /vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Y = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Y_'+ ExpTag + '.npy')
+
+input_shape = X.shape[1:]
+n_classes = int(np.max(Y))+1;
+
+
+def transformer_encoder(inputs, head_size, num_heads, ff_dim, dropout=0):
+    # Normalization and Attention
+    x = layers.LayerNormalization(epsilon=1e-6)(inputs)
+    x = layers.MultiHeadAttention(
+        #key_dim=head_size, num_heads=num_heads, dropout=dropout
+        key_dim=head_size, value_dim=head_size,num_heads=num_heads, dropout=dropout
+    )(x, x)
+    x = layers.Dropout(dropout)(x)
+    res = x + inputs
+    #
+    # Feed Forward Part
+    x = layers.LayerNormalization(epsilon=1e-6)(res)
+    x = layers.Conv1D(filters=ff_dim, kernel_size=1, activation="relu")(x)
+    x = layers.Dropout(dropout)(x)
+    x = layers.Conv1D(filters=inputs.shape[-1], kernel_size=1)(x)
+    return x + res
+
+
+def build_model(
+    input_shape,
+    head_size,
+    num_heads,
+    ff_dim,
+    num_transformer_blocks,
+    mlp_units,
+    dropout=0,
+    mlp_dropout=0,):
+    inputs = keras.Input(shape=input_shape)
+    x = inputs
+    for _ in range(num_transformer_blocks):
+        x = transformer_encoder(x, head_size, num_heads, ff_dim, dropout)
+    #
+    x = layers.GlobalAveragePooling1D(data_format="channels_first")(x)
+    for dim in mlp_units:
+        x = layers.Dense(dim, activation="relu")(x)
+        x = layers.Dropout(mlp_dropout)(x)
+    outputs = layers.Dense(n_classes, activation="softmax")(x)
+    return keras.Model(inputs, outputs)
+
+
+################# further training
+
+my_iter = 1
+my_num_epochs = 300 # 500 1000
+H_array = np.zeros((my_num_epochs))
+
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # [1,4] # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        #my_iter = 1
+        #my_head_size = 5
+       #
+        model = build_model(
+          input_shape,
+          head_size=my_head_size,
+          num_heads=my_num_heads, #1,#2,#4
+          ff_dim=my_ff_dim,
+          num_transformer_blocks=my_num_Tlayers, #1,#1, # 4,
+          mlp_units=[16], #[128],
+          mlp_dropout=0.1, #0.4,
+          dropout=0.1, #0.25,
+        )
+        #
+        model.compile(
+          loss="sparse_categorical_crossentropy",
+          optimizer=keras.optimizers.Adam(learning_rate=1e-4),#1e-4
+          metrics=["sparse_categorical_accuracy"],
+        )
+        model.summary()
+        #
+        callbacks = [keras.callbacks.EarlyStopping(patience=20000, restore_best_weights=True)]
+        #
+        H = model.fit(
+          X,
+          Y,
+          validation_split=0.2,
+          epochs=my_num_epochs,
+          batch_size=64*16,
+          callbacks=callbacks,
+        )
+        #final_acc = H.history['val_sparse_categorical_accuracy'][-1]
+        #res_arr[my_num_heads, my_num_Tlayers] = final_acc
+        H_array = np.array(H.history['val_sparse_categorical_accuracy'])
+        fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+        model.save("model_" + fout)
+        np.save("H_array_" + fout, H_array)
+
+
+##### test
+
+# read in test data set
+Xtest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Xtest_'+ ExpTag + '.npy')
+#/vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag + '.npy'
+Ytest = np.load('C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/Ytest_'+ ExpTag + '.npy')
+
+my_iter = 1 
+for my_num_heads in [1]: # np.arange(1,4): #4,4,5,6
+  for my_num_Tlayers in [1]: # np.arange(1,4):
+    for my_ff_dim in [1]: # np.arange(1, 5):
+      for my_head_size in [1,3,5]: # np.arange(1, 6):
+        # try:
+        if 1:
+          my_num_epochs = 300
+          fout = ExpTag + "_" + str(my_num_heads) + "_" + str(my_num_Tlayers) + "_" + str(my_num_epochs) + "_" + str(my_iter) + "_" + str(my_head_size) + "_" + str(my_ff_dim)
+          model_bu = keras.models.load_model("model_" + fout)
+          H = np.load("H_array_" + fout + ".npy")
+          Ytest_est = model_bu.predict(Xtest)
+          s = 0
+          for k in np.arange(0, len(Ytest)):
+            if (Ytest[k] < 0.5 and Ytest_est[k][0] > 0.5) or (Ytest[k] > 0.5 and Ytest_est[k][1] > 0.5):
+              s = s + 1
+          # slope of line through last half of H
+          st = linregress(np.arange(0, 80), H[my_num_epochs-80:])  ## tricky if length H is too small
+          still_progress = (st.slope > 0) and (st.pvalue < 0.05)
+          print([ExpTag, my_num_epochs, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0])
+          #file.write("%s %d %d %d %d %f %f %d %d\n" % (ExpTag, my_num_heads, my_num_Tlayers, my_ff_dim, my_head_size, s, np.round(s/len(Ytest), 3), still_progress+0, my_iter))
+        #except:
+        #  _ignore_ = 1
+
+
+# Plot
+plt.figure(figsize=(6,4))
+plt.plot(range(1, len(H) + 1), H, label="val acc", marker='o')
+plt.plot(range(1, len(H) + 1), H, label="val acc", linestyle='--')
+plt.xlabel("Epoch")
+plt.ylabel("val acc")
+plt.title("Val acc ABC vs ACB") # oops
+plt.legend()
+plt.grid(True)
+plt.savefig('in_between_v1.png')
+plt.show()
+
+
+938/938 [==============================] - 2s 2ms/step
+['MA_004', 300, 1, 1, 1, 1, 25579, 0.853, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_004', 300, 1, 1, 1, 3, 26561, 0.885, 1]
+938/938 [==============================] - 2s 2ms/step
+['MA_004', 300, 1, 1, 1, 5, 28366, 0.946, 1]
+
+
+
+
+

@@ -1,0 +1,258 @@
+
+#ssh mlp02
+#cd /vol/tensusers/ltenbosch/WAV2VEC/exp8
+#source venv/bin/activate
+# python3
+
+import numpy as np
+import random
+
+
+#################### TRAINING SETS
+
+# P is a frozen random sequence
+# choose A and B
+# A*B versus B*A in permutations of P
+ExpTag = "MA_001"
+N = 100000
+dim = 5
+L = 20
+
+P = np.random.random([L, dim]) 
+P = np.round(5*P)
+
+#cov = np.eye(5)
+#null = np.zeros(5)
+#d = np.random.multivariate_normal(null, cov)
+#t = np.random.multivariate_normal(null, cov)
+
+X = np.zeros([N, L, dim])
+Y = np.zeros([N, 1])
+
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+#
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+
+for i in np.arange(0, N):
+  # find sentence positions, and manipulate X
+  #sel = random.sample(np.arange(20), 3) ## ???
+  sel = random.sample([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19], 20)
+  for j in np.arange(0, L):
+    X[i, sel[j], :] = P[j]
+  Y[i] = 0 + (sel[5] < sel[6]) # arbitrary
+
+
+
+trainingset = np.arange(0, 70000)
+testset = np.arange(70000, 100000)
+
+
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/X_' + ExpTag, X[trainingset])
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag, Y[trainingset])
+
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/Xtest_' + ExpTag, X[testset])
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/Ytest_' + ExpTag, Y[testset])
+
+
+################### trainingset MA_002: random
+
+# P random sequence
+# AB versus BA in random real vector sequence
+ExpTag = "MA_002"
+N = 100000
+dim = 5
+L = 20
+
+A = 5*np.random.random([1, dim])
+B = 5*np.random.random([1, dim])
+
+#cov = np.eye(5)
+#null = np.zeros(5)
+#d = np.random.multivariate_normal(null, cov)
+#t = np.random.multivariate_normal(null, cov)
+
+X = np.zeros([N, L, dim])
+Y = np.zeros([N, 1])
+
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+#
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+
+for i in np.arange(0, N):
+  # find sentence positions, and manipulate X
+  #sel = random.sample(np.arange(20), 3) ## ???
+  X[i] = 5*np.random.random([L, dim])
+  sel = random.sample([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19], 2)
+  X[i, sel[0], :] = A
+  X[i, sel[1], :] = B
+  Y[i] = 0 + (sel[0] < sel[1])
+
+
+trainingset = np.arange(0, 70000)
+testset = np.arange(70000, 100000)
+
+
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/X_' + ExpTag, X[trainingset])
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/Y_' + ExpTag, Y[trainingset])
+
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/Xtest_' + ExpTag, X[testset])
+np.save('/vol/tensusers/ltenbosch/WAV2VEC/exp10/Ytest_' + ExpTag, Y[testset])
+
+#### MA_002 is used in Graz
+
+############################### New data sets for Graz:
+
+import numpy as np
+import random
+
+# P random integer sequence
+# ABC versus ACB in roving position in vector sequence (integer 0-5)
+
+ExpTag = "MA_003"
+N = 100000
+dim = 5
+L = 20
+
+
+A = np.random.randint(0, 5, (1, dim))
+B = np.random.randint(0, 5, (1, dim))
+C = np.random.randint(0, 5, (1, dim))
+
+
+X = np.zeros([N, L, dim])
+Y = np.zeros([N, 1])
+
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+#
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+
+for i in np.arange(0, N):
+  # find sentence positions, and manipulate X
+  #sel = random.sample(np.arange(20), 3) ## ???
+  X[i] = np.random.randint(0, 5, [L, dim])
+  selA = random.sample([0,1,2,3], 1)
+  selBC = random.sample([4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19], 2)
+  X[i, selA[0], :] = A
+  X[i, selBC[0], :] = B
+  X[i, selBC[1], :] = C
+  Y[i] = 0 + (selBC[0] < selBC[1])
+
+
+
+trainingset = np.arange(0, 70000)
+testset = np.arange(70000, 100000)
+
+
+np.save('X_' + ExpTag, X[trainingset])
+np.save('Y_' + ExpTag, Y[trainingset])
+
+np.save('Xtest_' + ExpTag, X[testset])
+np.save('Ytest_' + ExpTag, Y[testset])
+
+
+
+
+############################### another set
+
+import numpy as np
+import random
+
+# P random integer sequence
+# AB versus BA in random permutation of P
+ExpTag = "MA_003b"
+N = 100000
+dim = 3 # similar to MA_003 but smaller dimension; the hypothesis is that this is more difficult than dim==5
+L = 20
+
+
+A = np.random.randint(0, 5, (1, dim))
+B = np.random.randint(0, 5, (1, dim))
+C = np.random.randint(0, 5, (1, dim))
+
+
+X = np.zeros([N, L, dim])
+Y = np.zeros([N, 1])
+
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+#
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+
+for i in np.arange(0, N):
+  # find sentence positions, and manipulate X
+  #sel = random.sample(np.arange(20), 3) ## ???
+  X[i] = np.random.randint(0, 5, [L, dim])
+  selA = random.sample([0,1,2,3], 1)
+  selBC = random.sample([4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19], 2)
+  X[i, selA[0], :] = A
+  X[i, selBC[0], :] = B
+  X[i, selBC[1], :] = C
+  Y[i] = 0 + (selBC[0] < selBC[1])
+
+
+
+trainingset = np.arange(0, 70000)
+testset = np.arange(70000, 100000)
+
+
+np.save('X_' + ExpTag, X[trainingset])
+np.save('Y_' + ExpTag, Y[trainingset])
+
+np.save('Xtest_' + ExpTag, X[testset])
+np.save('Ytest_' + ExpTag, Y[testset])
+
+
+
+############################### another set
+
+import numpy as np
+import random
+
+# P random integer sequence
+# P -> Boolean depending on last vector is in between first and second vector
+ExpTag = "MA_004"
+N = 100000
+dim = 3
+L = 20
+
+
+X = np.zeros([N, L, dim])
+Y = np.zeros([N, 1])
+
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+#
+# for i in np.arange(0, N):
+#   X[i] = (np.random.random([L, dim]) > 0.5) + 0
+
+for i in np.arange(0, N):
+  # find sentence positions, and manipulate X
+  #sel = random.sample(np.arange(20), 3) ## ???
+  X[i] = np.random.randint(0, 5, [L, dim])
+  Y[i] = 0 + ((np.min([X[i][0][0], X[i][1][0]]) < X[i][-1][0]) and (X[i][-1][0] < np.max([X[i][0][0], X[i][1][0]]) ))
+
+
+
+trainingset = np.arange(0, 70000)
+testset = np.arange(70000, 100000)
+
+
+np.save('X_' + ExpTag, X[trainingset])
+np.save('Y_' + ExpTag, Y[trainingset])
+
+np.save('Xtest_' + ExpTag, X[testset])
+np.save('Ytest_' + ExpTag, Y[testset])
+
+
+
+
+
+
+
