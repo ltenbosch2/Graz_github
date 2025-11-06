@@ -1,0 +1,18 @@
+from transformers import pipeline
+
+#def main():
+#if 1:
+def create_text(prompt):
+    # Create a text-generation pipeline (minimal LLM)
+    generator = pipeline("text-generation", model="gpt2")
+    #
+    #prompt = "Write a friendly two-sentence greeting for a new user:"
+    out = generator(prompt, max_length=60, do_sample=True, temperature=0.8, num_return_sequences=2, truncation=True)
+    #
+    # pipeline returns a list of dicts with 'generated_text'
+    print(out[0]["generated_text"])
+
+
+
+#if __name__ == "__main__":
+#    main()

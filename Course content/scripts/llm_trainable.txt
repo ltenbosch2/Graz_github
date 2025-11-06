@@ -1,0 +1,101 @@
+#pip install transformers datasets accelerate
+
+
+
+
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer, AutoModelForCausalLM,
+    Trainer, TrainingArguments, DataCollatorForLanguageModeling
+)
+
+# -------------------------------------------------------
+# 1. Tiny text corpus
+# -------------------------------------------------------
+corpus = [
+    "Dragons are large, intelligent creatures. They guard treasures.",
+    "A good wizard always keeps their spells in a safe spellbook.",
+    "Magic is strongest during the full moon."
+]
+
+
+corpus = [
+    "Mathematicians like numbers.",
+    "The nicest puzzles deal with integer sequences.",
+    "One, two and three are integers."
+]
+
+
+
+dataset = Dataset.from_dict({"text": corpus})
+
+# -------------------------------------------------------
+# 2. Load model + tokenizer
+# -------------------------------------------------------
+model_name = "distilgpt2"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# GPT-like models have no padding token by default
+tokenizer.pad_token = tokenizer.eos_token
+
+def tokenize(batch):
+    return tokenizer(
+        batch["text"],
+        truncation=True,
+        padding="max_length",
+        max_length=64,
+    )
+
+tokenized_dataset = dataset.map(tokenize, batched=True)
+
+# -------------------------------------------------------
+# ✅ Fix: Collator that automatically adds labels=input_ids
+# -------------------------------------------------------
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer, mlm=False   # mlm=False → causal LM, not masked LM
+)
+
+# -------------------------------------------------------
+# 3. Training setup
+# -------------------------------------------------------
+training_args = TrainingArguments(
+    output_dir="tiny-llm-output",
+    num_train_epochs=5,
+    per_device_train_batch_size=2,
+    learning_rate=5e-5,
+    logging_steps=1,
+    save_strategy="no",
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset,
+    data_collator=data_collator,     # ✅ important fix
+)
+
+# -------------------------------------------------------
+# 4. Train (fine-tune)
+# -------------------------------------------------------
+trainer.train()
+
+# -------------------------------------------------------
+# 5. Test / generate text
+# -------------------------------------------------------
+prompt = "The wizard opened the spellbook and"
+prompt = "John likes mathematical puzzels. He wrote down the following sequence of integers: one, four, nine, sixteen. What is the following number?"
+prompt = "One. Two. Three. Four. Five. Six. Seven. Eight."
+inputs = tokenizer(prompt, return_tensors="pt")
+
+output = model.generate(
+    **inputs,
+    max_length=100,
+    num_return_sequences=2,
+    do_sample=True
+)
+
+print("\n--- Generated text ---\n")
+print(tokenizer.decode(output[0], skip_special_tokens=True))
+
+
