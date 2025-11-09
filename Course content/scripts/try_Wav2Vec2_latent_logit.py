@@ -4,69 +4,97 @@ pip install transformers
 pip install torch
 pip install soundfile
 
-########## wav2vec, hidden layers and logits
+##### get transcription by Wav2Vec2
 
-from transformers import Wav2Vec2Model, Wav2Vec2Processor, Wav2Vec2ForCTC
+from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
 import torch
 import soundfile as sf
 
-# Load pretrained Wav2Vec2 and processor processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
+# Load processor and ASR model (with decoder head)
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
 
-# Make sure hidden states are returned
-model.config.output_hidden_states = True  
+# Load audio file
+file_path = "C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/thisisanotherexample.wav"
+speech, sr = sf.read(file_path)
 
-# get audio
-## Example: audio tensor (1 sec of fake audio for demo) # You’d normally load with librosa/torchaudio 
-# input_values = torch.randn(1, 16000)  # batch size 1, 16k samples
+# Convert to float32 and add batch dimension
+input_values = processor(speech, sampling_rate=sr, return_tensors="pt", padding=True).input_values
 
+model.config.output_hidden_states = True
 
-sample, sr = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")               # this works
-
-# input_values is a tensor # this is OK for the remaining code
-# sample is an array, not OK for the rest of the code, make it a torch tensor
-s = torch.from_numpy(sample)
-input_values = s.unsqueeze(0)
-input_values = DoubleToFloat(input_values)
-
-# Forward pass
+# Disable gradient tracking
 with torch.no_grad():
     outputs = model(input_values)
 
-# `hidden_states` is a tuple with one entry per layer
-#   - hidden_states[0] = embeddings before transformer
-#   - hidden_states[1:] = hidden states after each layer
-hidden_states = outputs.hidden_states  
+# we now have the hidden layers and the logit tensor
+logits = outputs.logits  # size batch, time stamp, token id
+hidden_states = outputs.hidden_states
+print(len(hidden_states))  # Number of layers
 
+# Take argmax and decode to text
+predicted_ids = torch.argmax(logits, dim=-1)
+transcription = processor.batch_decode(predicted_ids)
+
+print("TRANSCRIPTION:")
+print(transcription[0])
+
+# NOW THIS IS AN EXAMPLE OFFER OF A DOCUMENTS IN WHICH WE TRY TO PROF A NUMBER OF CONJECTURES AND THAT ARE ATTRIBUTED TO MISTER EXUY AN S AND IN THIS EPLE I WOULD LIKE TO TRY TO TO CONFITIU ABOUT THE VALIDITY OF THE PROFS THAT HAS BEEN A GIVEN BY A MISTER WY SO  LETS FIRST START WITH THE PROF GIVEN BY MISTN X AT WHICH SHOWS THAT IF A E IS AN ALIPTIC CURVE WITH A A CERTAIN DEGREE THEN WE HAVE THE FOLLOWING PROCEDURE
+
+
+# how to see the vocab:
+vocab = processor.tokenizer.get_vocab()
+for token, index in vocab.items():
+    print(index, token)
+
+# how to see which token is recognized at which time stamp?
+timestep = 57
+logit_vector = logits[0, timestep]    # length = vocab size
+predicted_token_id = torch.argmax(logit_vector).item()
+token = processor.tokenizer.decode([predicted_token_id])
+print(predicted_token_id, token)
+
+# latent representations
 # Example: take layer 6 representations
 layer_index = 6
 layer_6_repr = hidden_states[layer_index]   # shape: (batch, time_steps, hidden_dim)
-
 print(layer_6_repr.shape)
 
-### to see the logits do
 
-# Load pretrained model + processor
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
-#model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h") in this model no logit
+## heat map
 
-# Load audio (should be 16kHz mono for this model)
-speech, rate = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")
-inputs = processor(speech, sampling_rate=rate, return_tensors="pt", padding=True)
+import matplotlib.pyplot as plt
+import torch
 
-# Forward pass
-with torch.no_grad():
-    outputs = model(**inputs)
+# logits: [batch, time, vocab]
+logits_orig = logits
+logits = logits.squeeze(0).cpu()    # remove batch dim -> [time, vocab]
+
+# Convert to numpy for plotting
+logits_np = logits.numpy()
+
+plt.figure(figsize=(10, 6))
+plt.imshow(logits_np.T, aspect='auto')  # vocab x time
+plt.title("Wav2Vec2 Logits Heatmap (CTC Output)")
+plt.xlabel("Time (frames)")
+plt.ylabel("Vocabulary token ID")
+plt.colorbar()
+plt.show()
+
+
+
+################# from logits to probs ###################
+
+....
 
 # The logits tensor (before softmax)
 logits = outputs.logits
 print(logits.shape)  # [batch_size, sequence_length, vocab_size]
 
-# Example: convert to probabilities
+# If you like: convert values in logit tensor to probabilities
 probs = torch.nn.functional.softmax(logits, dim=-1)
 
-# Example: greedy decoding
-pred_ids = torch.argmax(logits, dim=-1)
-transcription = processor.batch_decode(pred_ids)
-print(transcription)
+
+
+#### 
+### here continue with own experiments (e.g. look at class separability in latent vector space for two different vowels as function of some layer k)

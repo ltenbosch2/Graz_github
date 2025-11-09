@@ -24,6 +24,7 @@ def transcribe(audio_filepath, prompt: str) -> str:
 #example
 
 wavfile = 'C:/Users/louis/Downloads/thisisanexampleandthisalso.wav';
+wavfile = "C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz\Course content/scripts/thisisanexampleandthisalso.wav"
 # reference: this is aaa this is aaa an example this is an example and this is also aaa an example
 transcribe(wavfile, prompt="")
 'This is an example, this is an example, and this is also an example.'
@@ -40,7 +41,7 @@ transcribe(wavfile, prompt="Es soll nicht der letzte Besuch gewesen sein, sagt P
 
 
 
-# example
+# other examples
 wavfile = 'C:/Users/louis/Downloads/thisisanotherexample.wav';
 # "Yeah This is an example of a of a document in which we try to prove a number of conjectures that are attributed to Mr. X, Y, and Z. And in a sequel, I would like to try to to convince you about the validity of the proofs that have been given by Mr. Y. Soooo, let's first start with the proof given by Mr. X, which shows that if E is an elliptic curve with a certain degree, then we have the following procedure."
 

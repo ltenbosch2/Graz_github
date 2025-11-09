@@ -7,9 +7,9 @@ pip install soundfile
 
 
 
-##### try Whisper from Huggingface
+##### Whisper from Huggingface (more freedom but behind)
 
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import WhisperProcessor, WhisperForConditionalGeneration # this might take some time
 import soundfile as sf
 import torch
 
@@ -24,7 +24,8 @@ model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small")
 # input_features = processor(sample["array"], sampling_rate=sample["sampling_rate"], return_tensors="pt").input_features 
 
 ## load wav file directly
-sample, sr = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")               # this works
+#sample, sr = sf.read("C:/Users/louis/Downloads/thisisanotherexample.wav")               # this works
+sample, sr = sf.read("C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz/Course content/scripts/thisisanotherexample.wav") # here take your own directory
 #input_features = processor(sample, sampling_rate=16000, return_tensors="pt").input_features 
 
 
@@ -42,8 +43,9 @@ predicted_ids = model.generate(input_features) # ok if single wav file
 transcription = processor.batch_decode(predicted_ids, skip_special_tokens=False)
 print(transcription)
 
+# [" This is an example of a document in which we try to prove a number of conjectures that are attributed to Mr. X, Y and Z. In a sequel, I would like to try to convince you about the validity of the proofs that have been given by Mr. Y. Let's first start with the proofs given by Mr. Z."]
 
-############## try whisper from Huggingface, including prompting
+############## experiment B: try whisper from Huggingface, with prompting
 ############## this is not working in the way we want
 
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
