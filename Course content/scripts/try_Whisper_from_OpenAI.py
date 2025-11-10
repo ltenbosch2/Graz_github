@@ -9,7 +9,7 @@ import os
 
 #client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "<your OpenAI API key if not set as env var>"))
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "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"))
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "sk-proj-QG4zJMzZE-MVviF4a_EHN2B19hCaFjJlGGSeNSKGy5iCTAGReU6gpgo988MBunYGPaZSUEaDZRT3BlbkFJ0WCGGxRcr_-eIIMkY.....   (here your own API key)"))
 
 def transcribe(audio_filepath, prompt: str) -> str:
     """Given a prompt, transcribe the audio file."""
