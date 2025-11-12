@@ -7,9 +7,9 @@ from openai import OpenAI  # for making OpenAI API calls
 # import urllib  # for downloading example audio files
 import os
 
+# following line is to be uncommented and filled in with your own OpenAI API key)
 #client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "<your OpenAI API key if not set as env var>"))
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "sk-proj-QG4zJMzZE-MVviF4a_EHN2B19hCaFjJlGGSeNSKGy5iCTAGReU6gpgo988MBunYGPaZSUEaDZRT3BlbkFJ0WCGGxRcr_-eIIMkY.....   (here your own API key)"))
 
 def transcribe(audio_filepath, prompt: str) -> str:
     """Given a prompt, transcribe the audio file."""
@@ -23,8 +23,9 @@ def transcribe(audio_filepath, prompt: str) -> str:
 
 #example
 
-wavfile = 'C:/Users/louis/Downloads/thisisanexampleandthisalso.wav';
-wavfile = "C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz\Course content/scripts/thisisanexampleandthisalso.wav"
+#wavfile = 'C:/Users/louis/Downloads/thisisanexampleandthisalso.wav';
+wavfile = "C:/Users/louis/OneDrive - Radboud Universiteit/Bureaublad/Graz\Course content/scripts/thisisanexampleandthisalso.wav" # the wave file in in Github, so make sure you can access this file
+
 # reference: this is aaa this is aaa an example this is an example and this is also aaa an example
 transcribe(wavfile, prompt="")
 'This is an example, this is an example, and this is also an example.'
